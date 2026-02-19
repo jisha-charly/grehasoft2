@@ -15,6 +15,10 @@ from apps.seo.views import (
     SEOTechnicalViewSet, SEOKeywordsViewSet, GMBProfileViewSet,
     SocialMediaPostViewSet, SocialMetricsViewSet
 )
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 
 router = routers.DefaultRouter()
 
@@ -52,6 +56,11 @@ router.register(r'social-posts', SocialMediaPostViewSet)
 router.register(r'social-metrics', SocialMetricsViewSet)
 
 urlpatterns = [
+
+     path('api/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/', include('apps.users.urls')),
+
     path('admin/', admin.site.urls),
     path('api/v1/', include(router.urls)),
     path('api/v1/dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),

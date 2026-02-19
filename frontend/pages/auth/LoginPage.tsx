@@ -13,12 +13,12 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = (location.state as any)?.from?.pathname || "/";
+  const from = (location.state as any)?.from?.pathname || "//dashboard";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await login(username, role);
+      await login(username,  password);
       navigate(from, { replace: true });
     } catch (err) {
       setError('Invalid credentials');

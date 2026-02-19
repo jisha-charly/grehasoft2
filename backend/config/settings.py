@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'corsheaders',
     # Third-party
     'rest_framework',
+    'rest_framework_simplejwt',
     # Your apps (IMPORTANT: apps.appname)
     'apps.users',
     'apps.crm',
@@ -49,7 +50,18 @@ INSTALLED_APPS = [
     'apps.activity',
     'apps.seo',
 ]
+from datetime import timedelta
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+}
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
