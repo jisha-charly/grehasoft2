@@ -55,7 +55,7 @@ const LoginPage: React.FC = () => {
               </div>
             </div>
             <div className="mb-3">
-              <label className="form-label small fw-bold text-secondary uppercase tracking-wider">Security Key</label>
+              <label className="form-label small fw-bold text-secondary uppercase tracking-wider">Password</label>
               <div className="input-group">
                 <span className="input-group-text bg-light border-0 text-muted"><i className="bi bi-key"></i></span>
                 <input 

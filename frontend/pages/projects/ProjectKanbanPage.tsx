@@ -1,148 +1,239 @@
+import React, { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import KanbanBoard from "../../components/KanbanBoard";
+import TaskDetailsModal from "../../components/TaskDetailsModal";
+import { useAuth } from "../../context/AuthContext";
+import {
+  Project,
+  Task,
+  User,
+  Milestone,
+  TaskType,
+  TaskFile,
+  TaskReview,
+  TaskStatus,
+} from "../../types";
 
-import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import KanbanBoard from '../../components/KanbanBoard';
-import TaskDetailsModal from '../../components/TaskDetailsModal';
-import { Task, Project, TaskType, User, TaskStatus, Milestone, TaskFile, TaskReview } from '../../types';
+import { projectService } from "../../services/project.service";
+import { taskService } from "../../services/task.service";
+import { userService } from "../../services/user.service";
+import { milestoneService } from "../../services/milestone.service";
+import { taskTypeService } from "../../services/taskType.service";
+import { fileService } from "../../services/file.service";
+import { reviewService } from "../../services/review.service";
 
-interface ProjectKanbanPageProps {
-  projects: Project[];
-  tasks: Task[];
-  setTasks: (t: Task[]) => void;
-  users: User[];
-  milestones: Milestone[];
-  crud: any;
-  taskTypes: TaskType[];
-  taskFiles: TaskFile[];
-  taskReviews: TaskReview[];
-  fileCrud: any;
-  reviewCrud: any;
-  currentUser: User;
-}
-
-const ProjectKanbanPage: React.FC<ProjectKanbanPageProps> = ({ 
-  projects, tasks, setTasks, users, milestones, crud, taskTypes, taskFiles, taskReviews, fileCrud, reviewCrud, currentUser 
-}) => {
+const ProjectKanbanPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const project = projects.find(p => p.id === Number(id));
+  const projectId = Number(id);
+
+  const [project, setProject] = useState<Project | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
+  const [taskFiles, setTaskFiles] = useState<TaskFile[]>([]);
+  const [taskReviews, setTaskReviews] = useState<TaskReview[]>([]);
+
   const [isModalOpen, setModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+ const { user } = useAuth();
 
-  if (!project) return <div className="p-5 text-center"><h3>Project not found</h3><Link to="/projects">Back to list</Link></div>;
+const currentUser: User | null = user
+  ? {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      name: user.username,      // map for UI
+      departmentId: 0,
+      status: "active",
+      role: user.role as any,
+    }
+  : null;
 
-  const projectTasks = tasks.filter(t => t.projectId === project.id);
-  const projectMilestones = milestones.filter(m => m.projectId === project.id);
+  /* ---------------------- LOAD DATA ---------------------- */
 
-  const handleTasksReorder = (newTasks: Task[]) => {
-    // Keep other projects' tasks unchanged
-    const otherTasks = tasks.filter(t => t.projectId !== project.id);
-    // Merge back with newly ordered tasks for this project
-    setTasks([...otherTasks, ...newTasks]);
+  const fetchData = async () => {
+    try {
+      const [
+        projectRes,
+        tasksRes,
+        usersRes,
+        milestonesRes,
+        taskTypesRes,
+        filesRes,
+        reviewsRes,
+      ] = await Promise.all([
+        projectService.getById(projectId),
+        taskService.getByProject(projectId),
+        userService.getAll(),
+        milestoneService.getByProject(projectId),
+        taskTypeService.getAll(),
+        fileService.getByProject(projectId),
+reviewService.getByProject(projectId),
+      ]);
+
+      setProject(projectRes);
+      setTasks(tasksRes);
+      setUsers(usersRes);
+      setMilestones(milestonesRes);
+      setTaskTypes(taskTypesRes);
+      setTaskFiles(filesRes);
+      setTaskReviews(reviewsRes);
+    } catch (error) {
+      console.error("Failed to load kanban data", error);
+    }
   };
 
-  const handleNewTaskSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    if (projectId) {
+      fetchData();
+    }
+  }, [projectId]);
+
+  if (!project) {
+    return (
+      <div className="p-5 text-center">
+        <h3>Project not found</h3>
+        <Link to="/projects">Back to list</Link>
+      </div>
+    );
+  }
+
+  /* ---------------------- TASK CREATE ---------------------- */
+
+  const handleNewTaskSubmit = async (
+    e: React.FormEvent<HTMLFormElement>
+  ) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    crud.add({
-      projectId: project.id,
-      milestoneId: fd.get('milestoneId') ? Number(fd.get('milestoneId')) : undefined,
-      title: fd.get('title'),
-      description: fd.get('description'),
-      priority: fd.get('priority'),
-      status: fd.get('status') as TaskStatus || TaskStatus.TODO,
-      dueDate: fd.get('dueDate'),
-      taskTypeId: Number(fd.get('taskTypeId')),
-      assignees: [Number(fd.get('assignee'))]
+
+    const rawStatus = fd.get("status") as string;
+
+    const statusMap: Record<string, TaskStatus> = {
+      todo: TaskStatus.TODO,
+      in_progress: TaskStatus.IN_PROGRESS,
+      blocked: TaskStatus.BLOCKED,
+      done: TaskStatus.DONE,
+    };
+
+    await taskService.create({
+      projectId: projectId,
+      milestoneId: fd.get("milestoneId")
+        ? Number(fd.get("milestoneId"))
+        : undefined,
+      title: String(fd.get("title")),
+      description: String(fd.get("description") || ""),
+      priority: fd.get("priority") as "low" | "medium" | "high",
+      status: statusMap[rawStatus] ?? TaskStatus.TODO,
+      dueDate: String(fd.get("dueDate")),
+      taskTypeId: Number(fd.get("taskTypeId")),
+      assignees: fd.get("assignee")
+        ? [Number(fd.get("assignee"))]
+        : [],
+      boardOrder: 0,
     });
+
     setModalOpen(false);
+    fetchData();
   };
+
+  /* ---------------------- TASK UPDATE ---------------------- */
+
+  const handleTaskUpdate = async (
+    id: number,
+    data: Partial<Task>
+  ) => {
+    await taskService.update(id, data);
+    fetchData();
+  };
+
+  const handleTasksReorder = (newTasks: Task[]) => {
+    setTasks(newTasks);
+  };
+
+  /* ---------------------- UI ---------------------- */
 
   return (
     <div className="kanban-page-container">
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h2 className="fw-bold mb-1 text-dark">Work Board</h2>
-          <p className="text-secondary small mb-0">Sprint management for <strong>{project.name}</strong></p>
+          <p className="text-secondary small mb-0">
+            Sprint management for <strong>{project.name}</strong>
+          </p>
         </div>
+
         <div className="d-flex gap-2">
-          <Link to={`/projects/${project.id}`} className="btn btn-outline-secondary btn-sm fw-bold px-3 shadow-sm bg-white border">Back to Project</Link>
-          <button className="btn btn-primary fw-bold btn-sm px-3 shadow-sm" onClick={() => setModalOpen(true)}>
-            <i className="bi bi-plus-lg me-2"></i>New Task
+          <Link
+            to={`/projects/${project.id}`}
+            className="btn btn-outline-secondary btn-sm fw-bold px-3 shadow-sm bg-white border"
+          >
+            Back to Project
+          </Link>
+
+          <button
+            className="btn btn-primary fw-bold btn-sm px-3 shadow-sm"
+            onClick={() => setModalOpen(true)}
+          >
+            + New Task
           </button>
         </div>
       </div>
 
-      <KanbanBoard 
-        tasks={projectTasks} 
-        onTaskUpdate={crud.update} 
-        onTasksReorder={handleTasksReorder} 
-        onTaskClick={setSelectedTask} 
+      <KanbanBoard
+        tasks={tasks}
+        onTaskUpdate={handleTaskUpdate}
+        onTasksReorder={handleTasksReorder}
+        onTaskClick={setSelectedTask}
       />
 
       {isModalOpen && (
-        <div className="modal show d-block bg-dark bg-opacity-50" tabIndex={-1}>
+        <div className="modal show d-block bg-dark bg-opacity-50">
           <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4 bg-white shadow-lg overflow-hidden">
+            <div className="modal-content border-0 rounded-4 shadow-lg">
               <form onSubmit={handleNewTaskSubmit}>
-                <div className="modal-header pt-4 px-4 bg-white border-0">
-                  <h5 className="modal-title fw-bold">Add Task to {project.name}</h5>
-                  <button type="button" className="btn-close" onClick={() => setModalOpen(false)}></button>
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    Add Task to {project.name}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setModalOpen(false)}
+                  />
                 </div>
-                <div className="modal-body p-4 bg-white">
-                  <div className="row g-3">
-                    <div className="col-md-12">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Milestone</label>
-                      <select name="milestoneId" className="form-select bg-light border-0">
-                        <option value="">Select Milestone...</option>
-                        {projectMilestones.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
-                      </select>
-                    </div>
-                    <div className="col-12">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Task Title *</label>
-                      <input name="title" className="form-control" required placeholder="What needs to be done?" />
-                    </div>
-                    <div className="col-12">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Description</label>
-                      <textarea name="description" className="form-control" rows={3} placeholder="Provide details..."></textarea>
-                    </div>
-                    <div className="col-md-4">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Priority</label>
-                      <select name="priority" className="form-select">
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                      </select>
-                    </div>
-                    <div className="col-md-4">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Status</label>
-                      <select name="status" className="form-select">
-                        <option value="todo">To Do</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="blocked">Blocked</option>
-                        <option value="done">Completed</option>
-                      </select>
-                    </div>
-                    <div className="col-md-4">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Task Type</label>
-                      <select name="taskTypeId" className="form-select">
-                        {taskTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="col-md-4">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Due Date</label>
-                      <input name="dueDate" type="date" className="form-control" required />
-                    </div>
-                    <div className="col-md-8">
-                      <label className="form-label smaller fw-bold uppercase text-secondary">Assignee</label>
-                      <select name="assignee" className="form-select">
-                        {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
+
+                <div className="modal-body">
+                  <input
+                    name="title"
+                    className="form-control mb-3"
+                    placeholder="Task title"
+                    required
+                  />
+                  <textarea
+                    name="description"
+                    className="form-control mb-3"
+                    placeholder="Description"
+                  />
+                  <input
+                    name="dueDate"
+                    type="date"
+                    className="form-control mb-3"
+                    required
+                  />
                 </div>
-                <div className="modal-footer bg-white border-0 pb-4 px-4 gap-2">
-                  <button type="button" className="btn btn-light fw-bold px-4" onClick={() => setModalOpen(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary fw-bold px-4">Create Task</button>
+
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-light"
+                    onClick={() => setModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Create Task
+                  </button>
                 </div>
               </form>
             </div>
@@ -150,21 +241,27 @@ const ProjectKanbanPage: React.FC<ProjectKanbanPageProps> = ({
         </div>
       )}
 
-      {selectedTask && (
-        <TaskDetailsModal 
-          task={selectedTask} 
-          onClose={() => setSelectedTask(null)} 
-          files={taskFiles} 
-          reviews={taskReviews} 
-          users={users} 
-          currentUser={currentUser}
-          onAddFile={fileCrud.add} 
-          onAddReview={reviewCrud.add} 
-          onUpdateStatus={crud.update}
-        />
-      )}
+   {selectedTask && currentUser && (
+  <TaskDetailsModal
+    task={selectedTask}
+    users={users}
+    files={taskFiles}
+    reviews={taskReviews}
+    currentUser={currentUser}   // ✅ use mapped user
+    onClose={() => setSelectedTask(null)}
+    onAddFile={async (file) => {
+      await fileService.create(file);
+      fetchData();
+    }}
+    onAddReview={async (review) => {
+      await reviewService.create(review);
+      fetchData();
+    }}
+    onUpdateStatus={handleTaskUpdate}
+  />
+)}
     </div>
   );
 };
 
-export default ProjectKanbanPage;
+export default ProjectKanbanPage; 

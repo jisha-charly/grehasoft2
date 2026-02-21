@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import api from "../../../api/axiosInstance";
 import { User, Role, Department, UserRole } from "../../../types";
-import { userService } from "../../../services/user.service";
+
 const ITEMS_PER_PAGE = 6;
 
 const UsersPage: React.FC = () => {
@@ -81,20 +81,15 @@ const UsersPage: React.FC = () => {
     user.role === UserRole.SUPER_ADMIN;
 
   const handleDelete = async () => {
-  if (!deleteUser) return;
-
-  try {
-    await userService.delete(deleteUser.id);
-
-    setUsers(prev =>
-      prev.filter(user => user.id !== deleteUser.id)
-    );
-
-    setDeleteUser(null);
-  } catch (err) {
-    console.error(err);
-  }
-};
+    if (!deleteUser) return;
+    try {
+      await api.delete(`users/${deleteUser.id}/`);
+      setDeleteUser(null);
+      fetchUsers();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const validateForm = () => {
     const newErrors: any = {};
@@ -128,37 +123,28 @@ const UsersPage: React.FC = () => {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!validateForm()) return;
+    e.preventDefault();
+    if (!validateForm()) return;
 
-  const payload: any = { ...formData };
-  delete payload.confirmPassword;
+    const payload = { ...formData };
+    delete payload.confirmPassword;
 
-  // ✅ VERY IMPORTANT FIX
-  if (editingUser && !payload.password) {
-    delete payload.password; // do NOT send empty password
-  }
+    try {
+      if (editingUser) {
+        await api.put(`users/${editingUser.id}/`, payload);
+      } else {
+        await api.post("users/", payload);
+      }
 
-  try {
-    if (editingUser) {
-      await api.put(`users/${editingUser.id}/`, payload);
-    } else {
-      await api.post("users/", payload);
+      fetchUsers();
+      setModalOpen(false);
+      setEditingUser(null);
+      resetForm();
+      setErrors({});
+    } catch (err) {
+      console.error(err);
     }
-
-    fetchUsers();
-    setModalOpen(false);
-    setEditingUser(null);
-    resetForm();
-    setErrors({});
-  } catch (err: any) {
-  if (err.response?.data) {
-    setErrors(err.response.data);
-  } else {
-    console.error("Unexpected error:", err);
-  }
-}
-};
+  };
 
   const resetForm = () => {
     setFormData({
@@ -293,21 +279,12 @@ const UsersPage: React.FC = () => {
               <p>Delete <strong>{deleteUser.name}</strong>?</p>
 
               <div className="d-flex justify-content-end gap-2 mt-4">
-                <button
-  type="button"
-  className="btn btn-light"
-  onClick={() => setDeleteUser(null)}
->
-  Cancel
-</button>
-
-<button
-  type="button"
-  className="btn btn-danger"
-  onClick={handleDelete}
->
-  Delete
-</button>
+                <button className="btn btn-light" onClick={() => setDeleteUser(null)}>
+                  Cancel
+                </button>
+                <button className="btn btn-danger" onClick={handleDelete}>
+                  Delete
+                </button>
               </div>
             </div>
           </div>

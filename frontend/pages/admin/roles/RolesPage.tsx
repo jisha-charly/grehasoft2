@@ -1,182 +1,296 @@
+import React, { useEffect, useState, useMemo } from "react";
+import { roleService } from "../../../services/role.service";
+import { Role } from "../../../types";
 
-import React, { useState, useMemo } from 'react';
-import { Role } from '../../../types';
+const ITEMS_PER_PAGE = 6;
 
-interface RolesPageProps {
-  roles: Role[];
-  crud: any;
-}
+const RolesPage: React.FC = () => {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
-const RolesPage: React.FC<RolesPageProps> = ({ roles, crud }) => {
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [deleteRoleId, setDeleteRoleId] = useState<number | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    description: ""
+  });
+
+  const [errors, setErrors] = useState<any>({});
+
+  useEffect(() => {
+    fetchRoles();
+  }, []);
+
+  const fetchRoles = async () => {
+    const data = await roleService.getAll();
+    setRoles(data);
+  };
 
   const filteredRoles = useMemo(() => {
-    return roles.filter(role => 
-      role.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      role.description.toLowerCase().includes(searchTerm.toLowerCase())
+    return roles.filter(r =>
+      r.name.toLowerCase().includes(search.toLowerCase()) ||
+      (r.description || "").toLowerCase().includes(search.toLowerCase())
     );
-  }, [roles, searchTerm]);
+  }, [roles, search]);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const totalPages = Math.ceil(filteredRoles.length / ITEMS_PER_PAGE);
+
+  const paginatedRoles = filteredRoles.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  const validateForm = () => {
+    const newErrors: any = {};
+
+    if (!formData.name.trim())
+      newErrors.name = "Role name is required";
+
+    if (!/^[A-Z_]+$/.test(formData.name))
+      newErrors.name = "Use only uppercase letters and underscores";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const data = {
-      name: (formData.get('name') as string).toUpperCase().replace(/\s+/g, '_'),
-      description: formData.get('description') as string
-    };
-    
-    if (editingRole) {
-      crud.update(editingRole.id, data);
-    } else {
-      crud.add(data);
+    if (!validateForm()) return;
+
+    try {
+      if (editingRole) {
+        await roleService.update(editingRole.id, formData);
+      } else {
+        await roleService.create(formData);
+      }
+
+      fetchRoles();
+      setModalOpen(false);
+      setEditingRole(null);
+      resetForm();
+    } catch (err) {
+      console.error(err);
     }
-    setModalOpen(false);
-    setEditingRole(null);
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      description: ""
+    });
+    setErrors({});
   };
 
   const openEdit = (role: Role) => {
     setEditingRole(role);
+    setFormData({
+      name: role.name,
+      description: role.description || ""
+    });
     setModalOpen(true);
   };
 
-  const getRoleBadgeColor = (name: string) => {
-    if (name === 'ADMIN') return 'bg-danger';
-    if (name.includes('MANAGER')) return 'bg-primary';
-    if (name === 'CLIENT') return 'bg-info';
-    return 'bg-secondary';
+  const confirmDelete = async () => {
+    if (!deleteRoleId) return;
+
+    await roleService.delete(deleteRoleId);
+    setDeleteRoleId(null);
+    fetchRoles();
+  };
+
+  const getCardColor = (name: string) => {
+    if (name === "ADMIN") return "border-danger";
+    if (name.includes("MANAGER")) return "border-primary";
+    if (name === "CLIENT") return "border-success";
+    return "border-secondary";
   };
 
   return (
-    <div className="container-fluid p-0">
-      <div className="card shadow-sm border-0 bg-white">
-        <div className="card-header bg-white py-4 px-4 d-flex justify-content-between align-items-center border-0">
-          <div>
-            <h4 className="fw-bold mb-1 text-dark">Access Roles</h4>
-            <p className="text-secondary small mb-0">Manage system permissions and functional authorization levels</p>
-          </div>
-          <button className="btn btn-primary fw-bold px-4 shadow-sm" onClick={() => { setEditingRole(null); setModalOpen(true); }}>
-            <i className="bi bi-shield-lock-fill me-2"></i>Define New Role
-          </button>
+    <div className="container-fluid p-4">
+
+      {/* HEADER */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h3 className="fw-bold mb-1">Roles Management</h3>
+          <p className="text-muted small">Define and manage system roles</p>
         </div>
 
-        <div className="px-4 pb-3">
-          <div className="row align-items-center">
-            <div className="col-md-4">
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-light border-0 px-3"><i className="bi bi-search text-muted"></i></span>
-                <input 
-                  type="text" 
-                  className="form-control bg-light border-0 py-2" 
-                  placeholder="Filter roles..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="col-md-8 text-end">
-              <span className="text-secondary smaller fw-bold uppercase">Active Entities: {roles.length}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="table-responsive">
-          <table className="table table-professional align-middle mb-0">
-            <thead>
-              <tr>
-                <th className="px-4">Internal Name</th>
-                <th>Description</th>
-                <th>Created At</th>
-                <th className="text-end px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRoles.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="text-center py-5">
-                    <div className="text-muted opacity-50">
-                      <i className="bi bi-shield-slash fs-1 d-block mb-3"></i>
-                      No roles match your search criteria.
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                filteredRoles.map(role => (
-                  <tr key={role.id} className="hover-bg-light transition">
-                    <td className="px-4">
-                      <div className="d-flex align-items-center">
-                        <span className={`badge ${getRoleBadgeColor(role.name)} me-2`} style={{ width: '8px', height: '8px', padding: 0, borderRadius: '50%' }}></span>
-                        <span className="fw-bold text-dark font-monospace" style={{ letterSpacing: '0.025em' }}>{role.name}</span>
-                      </div>
-                    </td>
-                    <td><p className="small text-secondary mb-0 text-truncate" style={{ maxWidth: '350px' }}>{role.description}</p></td>
-                    <td className="small text-muted">{role.createdAt || 'N/A'}</td>
-                    <td className="text-end px-4">
-                      <div className="btn-group shadow-sm rounded-3 overflow-hidden border">
-                        <button className="btn btn-sm btn-white border-end" onClick={() => openEdit(role)} title="Modify Permissions">
-                          <i className="bi bi-pencil-square text-primary"></i>
-                        </button>
-                        <button className="btn btn-sm btn-white" onClick={() => { if(confirm(`Confirm deletion of role: ${role.name}?`)) crud.delete(role.id); }} title="Revoke Role">
-                          <i className="bi bi-trash3 text-danger"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <button
+          className="btn btn-dark"
+          onClick={() => {
+            setEditingRole(null);
+            resetForm();
+            setModalOpen(true);
+          }}
+        >
+          + New Role
+        </button>
       </div>
 
+      {/* SEARCH */}
+      <input
+        className="form-control mb-4"
+        placeholder="Search roles..."
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setCurrentPage(1);
+        }}
+      />
+
+      {/* CARDS */}
+      <div className="row">
+        {paginatedRoles.map(role => (
+          <div className="col-md-4 mb-4" key={role.id}>
+            <div className={`card shadow-sm h-100 p-3 ${getCardColor(role.name)}`}>
+
+              <h6 className="fw-bold">{role.name}</h6>
+
+              <p className="small text-muted mb-2">
+                {role.description || "No description"}
+              </p>
+
+              <p className="small text-muted">
+                Created: {role.createdAt || "N/A"}
+              </p>
+
+              <div className="d-flex justify-content-between mt-auto">
+                <button
+                  className="btn btn-light w-100 me-2"
+                  onClick={() => openEdit(role)}
+                >
+                  Edit
+                </button>
+
+                <button
+                  className="btn btn-outline-danger btn-sm"
+                  style={{ width: "40px" }}
+                  onClick={() => setDeleteRoleId(role.id)}
+                >
+                  <i className="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* PAGINATION */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mt-3">
+          <ul className="pagination">
+            {Array.from({ length: totalPages }, (_, i) => (
+              <li key={i} className={`page-item ${currentPage === i + 1 ? "active" : ""}`}>
+                <button
+                  className="page-link"
+                  onClick={() => setCurrentPage(i + 1)}
+                >
+                  {i + 1}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* CREATE / EDIT MODAL */}
       {isModalOpen && (
-        <div className="modal show d-block bg-dark bg-opacity-50" tabIndex={-1}>
+        <div className="modal show d-block" style={{ background: "rgba(0,0,0,0.5)" }}>
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4 overflow-hidden shadow-lg">
-              <form onSubmit={handleSubmit}>
-                <div className="modal-header border-0 pt-4 px-4 bg-white">
-                  <h5 className="modal-title fw-bold text-dark">
-                    {editingRole ? <><i className="bi bi-gear-wide-connected me-2"></i>Update Role Schema</> : <><i className="bi bi-shield-plus me-2"></i>Provision New Role</>}
-                  </h5>
-                  <button type="button" className="btn-close" onClick={() => setModalOpen(false)}></button>
+            <div className="modal-content p-4">
+
+              <div className="d-flex justify-content-between mb-4">
+                <h5 className="fw-bold">
+                  {editingRole ? "Edit Role" : "Create New Role"}
+                </h5>
+                <button className="btn-close" onClick={() => setModalOpen(false)}></button>
+              </div>
+
+              <form onSubmit={handleSubmit} noValidate>
+
+                <div className="mb-3">
+                  <label className="form-label fw-semibold">Role Name</label>
+                  <input
+                    className={`form-control ${errors.name ? "is-invalid" : ""}`}
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        name: e.target.value.toUpperCase().replace(/\s+/g, "_")
+                      })
+                    }
+                    placeholder="e.g. PROJECT_MANAGER"
+                  />
+                  {errors.name && (
+                    <div className="invalid-feedback">{errors.name}</div>
+                  )}
                 </div>
-                <div className="modal-body p-4 bg-white">
-                  <div className="mb-3">
-                    <label className="form-label smaller fw-bold text-secondary uppercase tracking-wider">Internal Identifier *</label>
-                    <input 
-                      name="name" 
-                      type="text" 
-                      className="form-control form-control-lg border-light bg-light font-monospace" 
-                      defaultValue={editingRole?.name} 
-                      placeholder="e.g. PROJECT_MANAGER" 
-                      style={{ textTransform: 'uppercase' }}
-                      required 
-                    />
-                    <div className="form-text smaller text-muted">Use uppercase and underscores for system compatibility.</div>
-                  </div>
-                  <div className="mb-0">
-                    <label className="form-label smaller fw-bold text-secondary uppercase tracking-wider">Functional Description</label>
-                    <textarea 
-                      name="description" 
-                      className="form-control border-light bg-light" 
-                      rows={4} 
-                      defaultValue={editingRole?.description} 
-                      placeholder="Specify the scope of access and responsibilities..."
-                    ></textarea>
-                  </div>
+
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">Description</label>
+                  <textarea
+                    className="form-control"
+                    rows={4}
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
+                  />
                 </div>
-                <div className="modal-footer border-0 p-4 pt-0 bg-white gap-2">
-                  <button type="button" className="btn btn-light fw-bold px-4 py-2 border" onClick={() => setModalOpen(false)}>Discard</button>
-                  <button type="submit" className="btn btn-dark fw-bold px-4 py-2 shadow-sm">
-                    {editingRole ? 'Save Changes' : 'Confirm Role Definition'}
+
+                <div className="d-flex justify-content-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-light"
+                    onClick={() => setModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-dark">
+                    {editingRole ? "Update" : "Create"}
                   </button>
                 </div>
+
               </form>
             </div>
           </div>
         </div>
       )}
+
+      {/* DELETE MODAL */}
+      {deleteRoleId && (
+        <div className="modal show d-block" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content p-4 text-center">
+
+              <h5 className="fw-bold mb-3">Delete Role?</h5>
+              <p className="text-muted small">
+                This action cannot be undone.
+              </p>
+
+              <div className="d-flex justify-content-center gap-3 mt-3">
+                <button
+                  className="btn btn-light"
+                  onClick={() => setDeleteRoleId(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={confirmDelete}
+                >
+                  Delete
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

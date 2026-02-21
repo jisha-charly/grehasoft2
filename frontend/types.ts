@@ -55,6 +55,7 @@ export interface User {
   role: UserRole;
   departmentId: number;
   status: 'active' | 'inactive';
+  createdAt?: string;   // ✅ ADD THIS
 }
 
 export interface Client {
@@ -82,7 +83,7 @@ export interface Project {
 }
 
 export interface Task {
-  id: string;
+  id: number;
   projectId: number;
   milestoneId?: number;
   title: string;
@@ -97,7 +98,7 @@ export interface Task {
 
 export interface TaskFile {
   id: number;
-  taskId: string;
+  taskId: number;
   uploadedBy: number;
   filePath: string;
   fileType: string;
@@ -108,6 +109,7 @@ export interface TaskFile {
 export interface TaskReview {
   id: number;
   taskFileId: number;
+   taskId:number;   // ✅ ADD THIS
   reviewerId: number;
   reviewedByRole: 'PM' | 'ADMIN';
   reviewVersion: number;
@@ -151,3 +153,4 @@ export interface ActivityLog {
   action: string;
   createdAt: string;
 }
+export type TaskPriority = "low" | "medium" | "high";

@@ -1,146 +1,252 @@
-import React, { useState, useMemo } from 'react';
-import { Client } from '../../types';
+import React, { useEffect, useMemo, useState } from "react";
+import { Client } from "../../types";
+import { clientService } from "../../services/client.service";
+import { toast } from "react-toastify";
 
-interface ClientsPageProps {
-  clients: Client[];
-  crud: any;
-}
+const ITEMS_PER_PAGE = 8;
 
-const ClientsPage: React.FC<ClientsPageProps> = ({ clients, crud }) => {
+const ClientsPage: React.FC = () => {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  const filteredClients = useMemo(() => {
-    return clients.filter(c => 
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      c.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.email.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [clients, searchTerm]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    
-    const payload = {
-      name: fd.get('name') as string,
-      email: fd.get('email') as string,
-      phone: fd.get('phone') as string,
-      companyName: fd.get('companyName') as string,
-      gstNo: fd.get('gstNo') as string,
-      address: fd.get('address') as string,
-    };
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    companyName: "",
+    gstNo: "",
+    address: "",
+  });
 
-    if (editingClient) {
-      crud.update(editingClient.id, payload);
-    } else {
-      crud.add(payload);
+  /* =========================
+     FETCH CLIENTS
+  ========================= */
+
+  useEffect(() => {
+    fetchClients();
+  }, []);
+
+  const fetchClients = async () => {
+    try {
+      const data = await clientService.getAll();
+      setClients(data);
+    } catch {
+      toast.error("Failed to load clients");
     }
-    setModalOpen(false);
-    setEditingClient(null);
   };
 
-  const handleEdit = (client: Client) => {
+  /* =========================
+     SEARCH + PAGINATION
+  ========================= */
+
+  const filteredClients = useMemo(() => {
+    const search = searchTerm.toLowerCase();
+
+    return clients.filter((c) => {
+      const name = c.name?.toLowerCase() || "";
+      const company = c.companyName?.toLowerCase() || "";
+      const email = c.email?.toLowerCase() || "";
+
+      return (
+        name.includes(search) ||
+        company.includes(search) ||
+        email.includes(search)
+      );
+    });
+  }, [clients, searchTerm]);
+
+  const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
+
+  const paginatedClients = filteredClients.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  /* =========================
+     VALIDATION
+  ========================= */
+
+  const validateForm = () => {
+    if (!formData.name.trim()) return "Client name is required";
+    if (!formData.email.trim()) return "Email is required";
+    if (!formData.companyName.trim()) return "Company name is required";
+    return null;
+  };
+
+  /* =========================
+     SUBMIT
+  ========================= */
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      if (editingClient) {
+        await clientService.update(editingClient.id, formData);
+        toast.success("Client updated successfully");
+      } else {
+        await clientService.create(formData);
+        toast.success("Client created successfully");
+      }
+
+      setModalOpen(false);
+      resetForm();
+      fetchClients();
+    } catch (err: any) {
+      if (err.response?.data?.email) {
+        setError(err.response.data.email[0]);
+      } else {
+        setError("Something went wrong.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* =========================
+     DELETE (MODERN CONFIRM)
+  ========================= */
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+
+    try {
+      await clientService.delete(deleteId);
+      toast.success("Client deleted successfully");
+      fetchClients();
+    } catch {
+      toast.error("Delete failed");
+    }
+
+    setDeleteId(null);
+  };
+
+  /* =========================
+     EDIT
+  ========================= */
+
+  const openEdit = (client: Client) => {
     setEditingClient(client);
+    setFormData({
+      name: client.name,
+      email: client.email,
+      phone: client.phone,
+      companyName: client.companyName,
+      gstNo: client.gstNo || "",
+      address: client.address,
+    });
     setModalOpen(true);
   };
 
+  const resetForm = () => {
+    setEditingClient(null);
+    setFormData({
+      name: "",
+      email: "",
+      phone: "",
+      companyName: "",
+      gstNo: "",
+      address: "",
+    });
+    setError(null);
+  };
+
+  /* =========================
+     UI
+  ========================= */
+
   return (
-    <div className="container-fluid p-0">
+    <div className="container-fluid p-4">
+      {/* HEADER */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
-          <h3 className="fw-bold mb-1 text-dark">Client Management</h3>
-          <p className="text-secondary small mb-0">Manage business accounts, GST details, and contact information</p>
+          <h3 className="fw-bold mb-1">Client Management</h3>
+          <p className="text-muted small">
+            Manage business accounts and contact details
+          </p>
         </div>
-        <button className="btn btn-primary fw-bold shadow-sm px-4" onClick={() => { setEditingClient(null); setModalOpen(true); }}>
-          <i className="bi bi-person-plus-fill me-2"></i>Register New Client
+
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            resetForm();
+            setModalOpen(true);
+          }}
+        >
+          + Register Client
         </button>
       </div>
 
-      <div className="card border-0 shadow-sm p-3 mb-4 bg-white">
-        <div className="row align-items-center">
-          <div className="col-md-4">
-            <div className="input-group input-group-sm">
-              <span className="input-group-text bg-light border-0 px-3"><i className="bi bi-search text-muted"></i></span>
-              <input 
-                type="text" 
-                className="form-control bg-light border-0 py-2" 
-                placeholder="Search by name, company or email..." 
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="col-md-8 text-end">
-            <span className="text-secondary small fw-bold uppercase">Total Accounts: {clients.length}</span>
-          </div>
-        </div>
-      </div>
+      {/* SEARCH */}
+      <input
+        className="form-control mb-4"
+        placeholder="Search by name, company or email..."
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          setCurrentPage(1);
+        }}
+      />
 
-      <div className="card border-0 shadow-sm overflow-hidden">
+      {/* TABLE */}
+      <div className="card shadow-sm">
         <div className="table-responsive">
-          <table className="table table-professional align-middle mb-0">
+          <table className="table align-middle mb-0">
             <thead>
               <tr>
-                <th className="px-4">Client / Contact</th>
-                <th>Company & GST</th>
-                <th>Contact Info</th>
-                <th>Mailing Address</th>
-                <th className="text-end px-4">Actions</th>
+                <th>Name</th>
+                <th>Company</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>GST</th>
+                <th className="text-end">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredClients.length === 0 ? (
+              {paginatedClients.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-5">
-                    <div className="text-muted">
-                      <i className="bi bi-people fs-1 opacity-25 d-block mb-3"></i>
-                      <h6 className="fw-bold">No clients found</h6>
-                      <p className="small mb-0">Try adjusting your search or register a new client.</p>
-                    </div>
+                  <td colSpan={6} className="text-center py-4 text-muted">
+                    No clients found
                   </td>
                 </tr>
               ) : (
-                filteredClients.map(client => (
-                  <tr key={client.id} className="hover-bg-light transition">
-                    <td className="px-4">
-                      <div className="d-flex align-items-center">
-                        <div className="avatar-placeholder bg-primary-subtle text-primary rounded-circle me-3 d-flex align-items-center justify-content-center fw-bold shadow-sm" style={{width: '38px', height: '38px', fontSize: '0.9rem'}}>
-                          {client.name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="fw-bold text-dark">{client.name}</div>
-                          <div className="smaller text-muted">Joined: {client.createdAt}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="fw-bold text-primary mb-1">{client.companyName}</div>
-                      <div className="small">
-                        <span className="badge bg-light text-secondary border fw-normal">
-                          <i className="bi bi-hash me-1"></i>GST: {client.gstNo || 'Unregistered'}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="small text-dark fw-medium"><i className="bi bi-envelope-at me-2 text-muted"></i>{client.email}</div>
-                      <div className="smaller text-secondary"><i className="bi bi-telephone me-2 text-muted"></i>{client.phone}</div>
-                    </td>
-                    <td>
-                      <div className="smaller text-secondary text-truncate" style={{ maxWidth: '200px' }} title={client.address}>
-                        <i className="bi bi-geo-alt me-1"></i>{client.address}
-                      </div>
-                    </td>
-                    <td className="text-end px-4">
-                      <div className="btn-group shadow-sm rounded-3 overflow-hidden">
-                        <button className="btn btn-sm btn-white border-end" onClick={() => handleEdit(client)} title="Edit Client">
-                          <i className="bi bi-pencil-square text-primary"></i>
-                        </button>
-                        <button className="btn btn-sm btn-white" onClick={() => { if(confirm('Are you sure you want to delete this client?')) crud.delete(client.id); }} title="Delete Client">
-                          <i className="bi bi-trash3 text-danger"></i>
-                        </button>
-                      </div>
+                paginatedClients.map((client) => (
+                  <tr key={client.id}>
+                    <td>{client.name}</td>
+                    <td>{client.companyName}</td>
+                    <td>{client.email}</td>
+                    <td>{client.phone}</td>
+                    <td>{client.gstNo || "—"}</td>
+                    <td className="text-end">
+                      <button
+                        className="btn btn-sm btn-light me-2"
+                        onClick={() => openEdit(client)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => setDeleteId(client.id)}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -150,63 +256,182 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ clients, crud }) => {
         </div>
       </div>
 
+      {/* PAGINATION */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mt-3">
+          <ul className="pagination">
+            {Array.from({ length: totalPages }, (_, i) => (
+              <li
+                key={i}
+                className={`page-item ${currentPage === i + 1 ? "active" : ""}`}
+              >
+                <button
+                  className="page-link"
+                  onClick={() => setCurrentPage(i + 1)}
+                >
+                  {i + 1}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* FORM MODAL */}
       {isModalOpen && (
-        <div className="modal show d-block bg-dark bg-opacity-50" tabIndex={-1}>
+        <div
+          className="modal show d-block"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+        >
           <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4 overflow-hidden shadow-lg">
-              <form onSubmit={handleSubmit}>
-                <div className="modal-header border-0 bg-white pt-4 px-4">
-                  <h5 className="modal-title fw-bold text-dark">
-                    {editingClient ? <><i className="bi bi-pencil-square me-2"></i>Update Client Profile</> : <><i className="bi bi-person-plus me-2"></i>Register New Client</>}
-                  </h5>
-                  <button type="button" className="btn-close" onClick={() => setModalOpen(false)}></button>
+            <div className="modal-content p-4">
+
+              <div className="d-flex justify-content-between mb-3">
+                <h5 className="fw-bold">
+                  {editingClient ? "Update Client" : "Register Client"}
+                </h5>
+                <button
+                  className="btn-close"
+                  onClick={() => setModalOpen(false)}
+                />
+              </div>
+
+              {error && (
+                <div className="alert alert-danger small py-2">
+                  {error}
                 </div>
-                <div className="modal-body p-4 bg-white">
-                  <div className="row g-3">
-                    <div className="col-md-6">
-                      <label className="form-label smaller fw-bold text-secondary text-uppercase tracking-wider">Contact Person Name *</label>
-                      <input name="name" type="text" className="form-control form-control-lg border-light bg-light" defaultValue={editingClient?.name} placeholder="e.g. John Doe" required />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label smaller fw-bold text-secondary text-uppercase tracking-wider">Company Name *</label>
-                      <input name="companyName" type="text" className="form-control form-control-lg border-light bg-light" defaultValue={editingClient?.companyName} placeholder="e.g. Grehasoft Solutions" required />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label smaller fw-bold text-secondary text-uppercase tracking-wider">Email Address *</label>
-                      <div className="input-group">
-                        <span className="input-group-text bg-light border-light"><i className="bi bi-envelope"></i></span>
-                        <input name="email" type="email" className="form-control form-control-lg border-light bg-light" defaultValue={editingClient?.email} placeholder="client@company.com" required />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label smaller fw-bold text-secondary text-uppercase tracking-wider">Phone Number</label>
-                      <div className="input-group">
-                        <span className="input-group-text bg-light border-light"><i className="bi bi-phone"></i></span>
-                        <input name="phone" type="text" className="form-control form-control-lg border-light bg-light" defaultValue={editingClient?.phone} placeholder="+91 00000 00000" />
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <label className="form-label smaller fw-bold text-secondary text-uppercase tracking-wider">GST Registration Number</label>
-                      <input name="gstNo" type="text" className="form-control form-control-lg border-light bg-light" defaultValue={editingClient?.gstNo} placeholder="Enter 15-digit GSTIN" />
-                      <div className="form-text smaller text-muted">Optional: Required for tax invoicing.</div>
-                    </div>
-                    <div className="col-md-12">
-                      <label className="form-label smaller fw-bold text-secondary text-uppercase tracking-wider">Office Address</label>
-                      <textarea name="address" className="form-control border-light bg-light" rows={3} defaultValue={editingClient?.address} placeholder="Enter full registered business address..."></textarea>
-                    </div>
+              )}
+
+              <form onSubmit={handleSubmit} noValidate>
+                <div className="row g-3">
+                  <div className="col-md-6">
+                    <input
+                      className="form-control"
+                      placeholder="Client Name *"
+                      value={formData.name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <input
+                      type="email"
+                      className="form-control"
+                      placeholder="Email *"
+                      value={formData.email}
+                      onChange={(e) =>
+                        setFormData({ ...formData, email: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <input
+                      className="form-control"
+                      placeholder="Company Name *"
+                      value={formData.companyName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, companyName: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <input
+                      className="form-control"
+                      placeholder="Phone"
+                      value={formData.phone}
+                      onChange={(e) =>
+                        setFormData({ ...formData, phone: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="col-md-12">
+                    <input
+                      className="form-control"
+                      placeholder="GST No"
+                      value={formData.gstNo}
+                      onChange={(e) =>
+                        setFormData({ ...formData, gstNo: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="col-md-12">
+                    <textarea
+                      className="form-control"
+                      rows={3}
+                      placeholder="Address"
+                      value={formData.address}
+                      onChange={(e) =>
+                        setFormData({ ...formData, address: e.target.value })
+                      }
+                    />
                   </div>
                 </div>
-                <div className="modal-footer border-0 p-4 pt-0 bg-white gap-2">
-                  <button type="button" className="btn btn-light fw-bold px-4 py-2" onClick={() => setModalOpen(false)}>Discard Changes</button>
-                  <button type="submit" className="btn btn-primary fw-bold px-4 py-2 shadow-sm">
-                    {editingClient ? 'Save Profile Updates' : 'Confirm Registration'}
+
+                <div className="text-end mt-4">
+                  <button
+                    type="button"
+                    className="btn btn-light me-2"
+                    onClick={() => setModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={loading}
+                  >
+                    {loading
+                      ? "Saving..."
+                      : editingClient
+                      ? "Update"
+                      : "Create"}
                   </button>
                 </div>
               </form>
+
             </div>
           </div>
         </div>
       )}
+
+      {/* DELETE CONFIRM MODAL */}
+      {deleteId && (
+        <div
+          className="modal show d-block"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content p-4 text-center">
+              <h5 className="fw-bold mb-3">Delete Client?</h5>
+              <p className="text-muted small">
+                This client will be moved to trash.
+              </p>
+
+              <div className="d-flex justify-content-center gap-3 mt-3">
+                <button
+                  className="btn btn-light"
+                  onClick={() => setDeleteId(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={confirmDelete}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

@@ -1,178 +1,310 @@
+import React, { useEffect, useState, useMemo } from "react";
+import { TaskType } from "../../../types";
+import { taskTypeService } from "../../../services/taskType.service";
 
-import React, { useState, useMemo } from 'react';
-import { TaskType } from '../../../types';
+const ITEMS_PER_PAGE = 6;
 
-interface TaskTypesPageProps {
-  taskTypes: TaskType[];
-  crud: any;
-}
+const TaskTypesPage: React.FC = () => {
+  const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
-const TaskTypesPage: React.FC<TaskTypesPageProps> = ({ taskTypes, crud }) => {
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingType, setEditingType] = useState<TaskType | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [deleteTypeId, setDeleteTypeId] = useState<number | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    description: ""
+  });
+
+  const [errors, setErrors] = useState<any>({});
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchTaskTypes();
+  }, []);
+
+  const fetchTaskTypes = async () => {
+    const data = await taskTypeService.getAll();
+    setTaskTypes(data);
+  };
 
   const filteredTypes = useMemo(() => {
-    return taskTypes.filter(tt => 
-      tt.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (tt.description && tt.description.toLowerCase().includes(searchTerm.toLowerCase()))
+    return taskTypes.filter(tt =>
+      tt.name.toLowerCase().includes(search.toLowerCase()) ||
+      (tt.description || "").toLowerCase().includes(search.toLowerCase())
     );
-  }, [taskTypes, searchTerm]);
+  }, [taskTypes, search]);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const totalPages = Math.ceil(filteredTypes.length / ITEMS_PER_PAGE);
+
+  const paginatedTypes = filteredTypes.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  const validateForm = () => {
+    const newErrors: any = {};
+
+    if (!formData.name.trim())
+      newErrors.name = "Task type name is required";
+
+    if (!/^[A-Z_]+$/.test(formData.name))
+      newErrors.name = "Use only uppercase letters and underscores";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const data = { 
-      name: (formData.get('name') as string).toUpperCase(), 
-      description: formData.get('description') as string 
-    };
-    
-    if (editingType) {
-      crud.update(editingType.id, data);
+    if (!validateForm()) return;
+
+    try {
+  setFormError(null);
+
+  if (editingType) {
+    await taskTypeService.update(editingType.id, formData);
+  } else {
+    await taskTypeService.create(formData);
+  }
+
+  fetchTaskTypes();
+  setModalOpen(false);
+  resetForm();
+  setEditingType(null);
+
+} catch (err: any) {
+  console.error(err);
+
+  const data = err.response?.data;
+
+  if (data?.name) {
+    if (Array.isArray(data.name)) {
+      setFormError(data.name[0]);
     } else {
-      crud.add(data);
+      setFormError(data.name);
     }
-    setModalOpen(false);
-    setEditingType(null);
+  } else {
+    setFormError("Something went wrong. Please try again.");
+  }
+}};
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      description: ""
+    });
+    setErrors({});
   };
 
   const openEdit = (tt: TaskType) => {
     setEditingType(tt);
+    setFormData({
+      name: tt.name,
+      description: tt.description || ""
+    });
     setModalOpen(true);
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTypeId) return;
+    await taskTypeService.delete(deleteTypeId);
+    setDeleteTypeId(null);
+    fetchTaskTypes();
+  };
+
   return (
-    <div className="container-fluid p-0">
-      <div className="card shadow-sm border-0 bg-white">
-        <div className="card-header bg-white py-4 px-4 d-flex justify-content-between align-items-center border-0">
-          <div>
-            <h4 className="fw-bold mb-1 text-dark">Task Classifications</h4>
-            <p className="text-secondary small mb-0">Define and manage categorical work types for project workflows</p>
-          </div>
-          <button className="btn btn-primary fw-bold px-4 shadow-sm" onClick={() => { setEditingType(null); setModalOpen(true); }}>
-            <i className="bi bi-tag-fill me-2"></i>Register Task Type
-          </button>
+    <div className="container-fluid p-4">
+
+      {/* HEADER */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h3 className="fw-bold mb-1">Task Types</h3>
+          <p className="text-muted small">
+            Define and manage task classifications
+          </p>
         </div>
 
-        <div className="px-4 pb-3">
-          <div className="row align-items-center">
-            <div className="col-md-4">
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-light border-0 px-3"><i className="bi bi-search text-muted"></i></span>
-                <input 
-                  type="text" 
-                  className="form-control bg-light border-0 py-2" 
-                  placeholder="Filter by name or description..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="col-md-8 text-end">
-              <span className="text-secondary smaller fw-bold uppercase">System Types: {taskTypes.length}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="table-responsive">
-          <table className="table table-professional align-middle mb-0">
-            <thead>
-              <tr>
-                <th className="px-4">Identifier</th>
-                <th>Functional Description</th>
-                <th>Created At</th>
-                <th className="text-end px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTypes.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="text-center py-5">
-                    <div className="text-muted opacity-50">
-                      <i className="bi bi-tags fs-1 d-block mb-3"></i>
-                      No task types match your current selection.
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                filteredTypes.map(tt => (
-                  <tr key={tt.id} className="hover-bg-light transition">
-                    <td className="px-4">
-                      <span className="badge bg-light text-dark border px-3 py-2 font-monospace tracking-wide">
-                        {tt.name}
-                      </span>
-                    </td>
-                    <td>
-                      <p className="small text-secondary mb-0 text-truncate" style={{ maxWidth: '400px' }} title={tt.description}>
-                        {tt.description || 'No detailed description provided for this classification.'}
-                      </p>
-                    </td>
-                    <td className="small text-muted">{tt.createdAt || 'N/A'}</td>
-                    <td className="text-end px-4">
-                      <div className="btn-group shadow-sm rounded-3 overflow-hidden border">
-                        <button className="btn btn-sm btn-white border-end" onClick={() => openEdit(tt)} title="Configure Type">
-                          <i className="bi bi-pencil-square text-primary"></i>
-                        </button>
-                        <button className="btn btn-sm btn-white" onClick={() => { if(confirm(`Revoke classification type: ${tt.name}?`)) crud.delete(tt.id); }} title="Remove Type">
-                          <i className="bi bi-trash3 text-danger"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <button
+          className="btn btn-dark"
+          onClick={() => {
+            setEditingType(null);
+            resetForm();
+            setModalOpen(true);
+          }}
+        >
+          + New Task Type
+        </button>
       </div>
 
+      {/* SEARCH */}
+      <input
+        className="form-control mb-4"
+        placeholder="Search task types..."
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setCurrentPage(1);
+        }}
+      />
+
+      {/* CARDS */}
+      <div className="row">
+        {paginatedTypes.map(tt => (
+          <div className="col-md-4 mb-4" key={tt.id}>
+            <div className="card shadow-sm h-100 p-3">
+
+              <span className="badge bg-light text-dark border font-monospace mb-2">
+                {tt.name}
+              </span>
+
+              <p className="small text-muted mb-2">
+                {tt.description || "No description provided"}
+              </p>
+
+              <p className="small text-muted">
+                Created: {tt.createdAt || "N/A"}
+              </p>
+
+              <div className="d-flex justify-content-between mt-auto">
+                <button
+                  className="btn btn-light w-100 me-2"
+                  onClick={() => openEdit(tt)}
+                >
+                  Edit
+                </button>
+
+                <button
+                  className="btn btn-outline-danger btn-sm"
+                  style={{ width: "40px" }}
+                  onClick={() => setDeleteTypeId(tt.id)}
+                >
+                  <i className="bi bi-trash"></i>
+                </button>
+              </div>
+
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* PAGINATION */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mt-3">
+          <ul className="pagination">
+            {Array.from({ length: totalPages }, (_, i) => (
+              <li key={i} className={`page-item ${currentPage === i + 1 ? "active" : ""}`}>
+                <button
+                  className="page-link"
+                  onClick={() => setCurrentPage(i + 1)}
+                >
+                  {i + 1}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* CREATE / EDIT MODAL */}
       {isModalOpen && (
-        <div className="modal show d-block bg-dark bg-opacity-50" tabIndex={-1}>
+        <div className="modal show d-block" style={{ background: "rgba(0,0,0,0.5)" }}>
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4 overflow-hidden shadow-lg">
-              <form onSubmit={handleSubmit}>
-                <div className="modal-header border-0 pt-4 px-4 bg-white">
-                  <h5 className="modal-title fw-bold text-dark">
-                    {editingType ? <><i className="bi bi-gear-fill me-2"></i>Modify Classification</> : <><i className="bi bi-plus-circle-fill me-2"></i>New Classification</>}
-                  </h5>
-                  <button type="button" className="btn-close" onClick={() => setModalOpen(false)}></button>
+            <div className="modal-content p-4">
+
+              <div className="d-flex justify-content-between mb-4">
+                <h5 className="fw-bold">
+                  {editingType ? "Edit Task Type" : "Create Task Type"}
+                </h5>
+                <button className="btn-close" onClick={() => setModalOpen(false)}></button>
+              </div>
+
+              <form onSubmit={handleSubmit} noValidate>
+
+                <div className="mb-3">
+                  <label className="form-label fw-semibold">Type Name</label>
+                  <input
+                    className={`form-control ${errors.name ? "is-invalid" : ""}`}
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        name: e.target.value.toUpperCase().replace(/\s+/g, "_")
+                      })
+                    }
+                    placeholder="e.g. DEVELOPMENT"
+                  />
+                  {formError && (
+  <div className="text-danger mt-2">
+    {formError}
+  </div>
+)}
                 </div>
-                <div className="modal-body p-4 bg-white">
-                  <div className="mb-4">
-                    <label className="form-label smaller fw-bold text-secondary uppercase tracking-wider">Classification Name *</label>
-                    <input 
-                      name="name" 
-                      type="text" 
-                      className="form-control form-control-lg border-light bg-light font-monospace" 
-                      defaultValue={editingType?.name} 
-                      placeholder="e.g. DEV, SEO, DESIGN" 
-                      style={{ textTransform: 'uppercase' }}
-                      required 
-                    />
-                    <div className="form-text smaller text-muted">Use concise unique identifiers for reporting purposes.</div>
-                  </div>
-                  <div className="mb-0">
-                    <label className="form-label smaller fw-bold text-secondary uppercase tracking-wider">Description</label>
-                    <textarea 
-                      name="description" 
-                      className="form-control border-light bg-light" 
-                      rows={4} 
-                      defaultValue={editingType?.description} 
-                      placeholder="Explain the scope of tasks that fall under this classification..."
-                    ></textarea>
-                  </div>
+
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">Description</label>
+                  <textarea
+                    className="form-control"
+                    rows={4}
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
+                  />
                 </div>
-                <div className="modal-footer border-0 p-4 pt-0 bg-white gap-2">
-                  <button type="button" className="btn btn-light fw-bold px-4 py-2 border" onClick={() => setModalOpen(false)}>Discard</button>
-                  <button type="submit" className="btn btn-dark fw-bold px-4 py-2 shadow-sm">
-                    {editingType ? 'Update Classification' : 'Register Type'}
+
+                <div className="d-flex justify-content-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-light"
+                    onClick={() => setModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-dark">
+                    {editingType ? "Update" : "Create"}
                   </button>
                 </div>
+
               </form>
             </div>
           </div>
         </div>
       )}
+
+      {/* DELETE MODAL */}
+      {deleteTypeId && (
+        <div className="modal show d-block" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content p-4 text-center">
+
+              <h5 className="fw-bold mb-3">Delete Task Type?</h5>
+              <p className="text-muted small">
+                This action cannot be undone.
+              </p>
+
+              <div className="d-flex justify-content-center gap-3 mt-3">
+                <button
+                  className="btn btn-light"
+                  onClick={() => setDeleteTypeId(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={confirmDelete}
+                >
+                  Delete
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

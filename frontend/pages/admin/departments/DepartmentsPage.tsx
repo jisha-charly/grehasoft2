@@ -1,40 +1,107 @@
+import React, { useEffect, useState, useMemo } from "react";
+import { Department } from "../../../types";
+import { departmentService } from "../../../services/department.service";
 
-import React, { useState, useMemo } from 'react';
-import { Department } from '../../../types';
+const ITEMS_PER_PAGE = 6;
 
-interface DepartmentsPageProps {
-  departments: Department[];
-  crud: any;
-}
+const DepartmentsPage: React.FC = () => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
-const DepartmentsPage: React.FC<DepartmentsPageProps> = ({ departments, crud }) => {
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingDept, setEditingDept] = useState<Department | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [deleteDeptId, setDeleteDeptId] = useState<number | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    parentId: ""
+  });
+
+  
+const [errors, setErrors] = useState<any>({});
+  useEffect(() => {
+    fetchDepartments();
+  }, []);
+
+  const fetchDepartments = async () => {
+    const data = await departmentService.getAll();
+    setDepartments(data);
+  };
 
   const filteredDepartments = useMemo(() => {
-    return departments.filter(dept => 
-      dept.name.toLowerCase().includes(searchTerm.toLowerCase())
+    return departments.filter(d =>
+      d.name.toLowerCase().includes(search.toLowerCase())
     );
-  }, [departments, searchTerm]);
+  }, [departments, search]);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const parentIdStr = formData.get('parentId') as string;
-    
-    const data = {
-      name: formData.get('name') as string,
-      parentId: parentIdStr ? Number(parentIdStr) : null
-    };
-    
+  const totalPages = Math.ceil(filteredDepartments.length / ITEMS_PER_PAGE);
+
+  const paginatedDepartments = filteredDepartments.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  const validateForm = () => {
+    const newErrors: any = {};
+    if (!formData.name.trim())
+      newErrors.name = "Department name is required";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!validateForm()) return;
+
+  const payload = {
+    name: formData.name,
+    parent: formData.parentId ? Number(formData.parentId) : null
+  };
+
+  try {
     if (editingDept) {
-      crud.update(editingDept.id, data);
+      await departmentService.update(editingDept.id, payload);
     } else {
-      crud.add(data);
+      await departmentService.create(payload);
     }
+
+    fetchDepartments();
     setModalOpen(false);
-    setEditingDept(null);
+    resetForm();
+    setErrors({});
+
+  } catch (err: any) {
+    if (err.response?.data) {
+      setErrors(err.response.data);
+    } else {
+      setErrors({ name: "Something went wrong. Please try again." });
+    }
+  }
+};
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      parentId: ""
+    });
+    setErrors({});
+  };
+
+  const openEdit = (dept: Department) => {
+    setEditingDept(dept);
+    setFormData({
+      name: dept.name,
+      parentId: dept.parentId ? String(dept.parentId) : ""
+    });
+    setModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteDeptId) return;
+    await departmentService.delete(deleteDeptId);
+    setDeleteDeptId(null);
+    fetchDepartments();
   };
 
   const getParentName = (parentId?: number) => {
@@ -42,155 +109,202 @@ const DepartmentsPage: React.FC<DepartmentsPageProps> = ({ departments, crud }) 
     return departments.find(d => d.id === parentId)?.name;
   };
 
-  const openEdit = (dept: Department) => {
-    setEditingDept(dept);
-    setModalOpen(true);
-  };
-
   return (
-    <div className="container-fluid p-0">
-      <div className="card shadow-sm border-0 bg-white">
-        <div className="card-header bg-white py-4 px-4 d-flex justify-content-between align-items-center border-0">
-          <div>
-            <h4 className="fw-bold mb-1 text-dark">Organizational Units</h4>
-            <p className="text-secondary small mb-0">Define corporate departments and functional sub-units</p>
-          </div>
-          <button className="btn btn-primary fw-bold px-4 shadow-sm" onClick={() => { setEditingDept(null); setModalOpen(true); }}>
-            <i className="bi bi-diagram-3-fill me-2"></i>Create Department
-          </button>
+    <div className="container-fluid p-4">
+
+      {/* HEADER */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h3 className="fw-bold mb-1">Departments</h3>
+          <p className="text-muted small">Manage organizational structure</p>
         </div>
 
-        <div className="px-4 pb-3">
-          <div className="row align-items-center">
-            <div className="col-md-4">
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-light border-0 px-3"><i className="bi bi-search text-muted"></i></span>
-                <input 
-                  type="text" 
-                  className="form-control bg-light border-0 py-2" 
-                  placeholder="Filter by name..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="table-responsive">
-          <table className="table table-professional align-middle mb-0">
-            <thead>
-              <tr>
-                <th className="px-4">Department Name</th>
-                <th>Relationship</th>
-                <th>Created At</th>
-                <th className="text-end px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDepartments.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="text-center py-5">
-                    <div className="text-muted opacity-50">
-                      <i className="bi bi-diagram-2 fs-1 d-block mb-3"></i>
-                      No departments match your search.
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                filteredDepartments.map(dept => {
-                  const parentName = getParentName(dept.parentId);
-                  return (
-                    <tr key={dept.id} className="hover-bg-light transition">
-                      <td className="px-4">
-                        <div className="d-flex align-items-center">
-                          {dept.parentId && <i className="bi bi-arrow-return-right text-muted me-2 smaller"></i>}
-                          <span className={`fw-bold ${dept.parentId ? 'text-secondary small' : 'text-dark'}`}>{dept.name}</span>
-                        </div>
-                      </td>
-                      <td>
-                        {parentName ? (
-                          <span className="badge bg-light text-primary border fw-normal py-1 px-2">
-                            <i className="bi bi-layers me-1"></i>Sub of {parentName}
-                          </span>
-                        ) : (
-                          <span className="badge bg-primary-subtle text-primary border-0 fw-bold py-1 px-2 uppercase smaller">
-                            Primary Unit
-                          </span>
-                        )}
-                      </td>
-                      <td className="small text-muted">{dept.createdAt || 'N/A'}</td>
-                      <td className="text-end px-4">
-                        <div className="btn-group shadow-sm rounded-3 overflow-hidden border">
-                          <button className="btn btn-sm btn-white border-end" onClick={() => openEdit(dept)} title="Modify Configuration">
-                            <i className="bi bi-pencil-square text-primary"></i>
-                          </button>
-                          <button className="btn btn-sm btn-white" onClick={() => { if(confirm(`Confirm deletion of ${dept.name}?`)) crud.delete(dept.id); }} title="Remove Unit">
-                            <i className="bi bi-trash3 text-danger"></i>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <button
+          className="btn btn-dark"
+          onClick={() => {
+            setEditingDept(null);
+            resetForm();
+            setModalOpen(true);
+          }}
+        >
+          + New Department
+        </button>
       </div>
 
-      {isModalOpen && (
-        <div className="modal show d-block bg-dark bg-opacity-50" tabIndex={-1}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4 overflow-hidden shadow-lg">
-              <form onSubmit={handleSubmit}>
-                <div className="modal-header border-0 pt-4 px-4 bg-white">
-                  <h5 className="modal-title fw-bold text-dark">
-                    {editingDept ? <><i className="bi bi-gear-wide me-2"></i>Edit Department</> : <><i className="bi bi-plus-circle me-2"></i>New Department</>}
-                  </h5>
-                  <button type="button" className="btn-close" onClick={() => setModalOpen(false)}></button>
-                </div>
-                <div className="modal-body p-4 bg-white">
-                  <div className="mb-4">
-                    <label className="form-label smaller fw-bold text-secondary uppercase tracking-wider">Unit Name *</label>
-                    <input 
-                      name="name" 
-                      type="text" 
-                      className="form-control form-control-lg border-light bg-light" 
-                      defaultValue={editingDept?.name} 
-                      placeholder="e.g. Design Services" 
-                      required 
-                    />
-                  </div>
-                  <div className="mb-0">
-                    <label className="form-label smaller fw-bold text-secondary uppercase tracking-wider">Parent Division</label>
-                    <select 
-                      name="parentId" 
-                      className="form-select form-select-lg border-light bg-light" 
-                      defaultValue={editingDept?.parentId || ''}
-                    >
-                      <option value="">None (Primary Department)</option>
-                      {departments
-                        .filter(d => d.id !== editingDept?.id) // Prevent self-parenting
-                        .map(d => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))
-                      }
-                    </select>
-                    <div className="form-text smaller text-muted">Nested departments help organize sub-services and specialized teams.</div>
-                  </div>
-                </div>
-                <div className="modal-footer border-0 p-4 pt-0 bg-white gap-2">
-                  <button type="button" className="btn btn-light fw-bold px-4 py-2 border" onClick={() => setModalOpen(false)}>Discard</button>
-                  <button type="submit" className="btn btn-dark fw-bold px-4 py-2 shadow-sm">
-                    {editingDept ? 'Update Details' : 'Confirm Definition'}
+      {/* SEARCH */}
+      <input
+        className="form-control mb-4"
+        placeholder="Search departments..."
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setCurrentPage(1);
+        }}
+      />
+
+      {/* CARDS */}
+      <div className="row">
+        {paginatedDepartments.map(dept => {
+          const parentName = getParentName(dept.parentId);
+
+          return (
+            <div className="col-md-4 mb-4" key={dept.id}>
+              <div className="card shadow-sm h-100 p-3">
+
+                <h6 className="fw-bold">{dept.name}</h6>
+
+                <p className="small text-muted mb-2">
+                  {parentName
+                    ? `Sub Department of ${parentName}`
+                    : "Primary Department"}
+                </p>
+
+                <p className="small text-muted">
+                  Created: {dept.createdAt || "N/A"}
+                </p>
+
+                <div className="d-flex justify-content-between mt-auto">
+                  <button
+                    className="btn btn-light w-100 me-2"
+                    onClick={() => openEdit(dept)}
+                  >
+                    Edit
+                  </button>
+
+                  <button
+                    className="btn btn-outline-danger btn-sm"
+                    style={{ width: "40px" }}
+                    onClick={() => setDeleteDeptId(dept.id)}
+                  >
+                    <i className="bi bi-trash"></i>
                   </button>
                 </div>
+
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* PAGINATION */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mt-3">
+          <ul className="pagination">
+            {Array.from({ length: totalPages }, (_, i) => (
+              <li key={i} className={`page-item ${currentPage === i + 1 ? "active" : ""}`}>
+                <button
+                  className="page-link"
+                  onClick={() => setCurrentPage(i + 1)}
+                >
+                  {i + 1}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* CREATE / EDIT MODAL */}
+      {isModalOpen && (
+        <div className="modal show d-block" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content p-4">
+
+              <div className="d-flex justify-content-between mb-4">
+                <h5 className="fw-bold">
+                  {editingDept ? "Edit Department" : "Create Department"}
+                </h5>
+                <button className="btn-close" onClick={() => setModalOpen(false)}></button>
+              </div>
+
+              <form onSubmit={handleSubmit} noValidate>
+
+                <div className="mb-3">
+                  <label className="form-label fw-semibold">Department Name</label>
+                  <input
+                    className={`form-control ${errors.name ? "is-invalid" : ""}`}
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                  />
+                 {errors.name && (
+  <div className="invalid-feedback">
+    {Array.isArray(errors.name) ? errors.name[0] : errors.name}
+  </div>
+)}
+                </div>
+
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">Parent Department</label>
+                  <select
+                    className="form-select"
+                    value={formData.parentId}
+                    onChange={(e) =>
+                      setFormData({ ...formData, parentId: e.target.value })
+                    }
+                  >
+                    <option value="">None (Primary)</option>
+                    {departments
+                      .filter(d => d.id !== editingDept?.id)
+                      .map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="d-flex justify-content-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-light"
+                    onClick={() => setModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-dark">
+                    {editingDept ? "Update" : "Create"}
+                  </button>
+                </div>
+
               </form>
             </div>
           </div>
         </div>
       )}
+
+      {/* DELETE MODAL */}
+      {deleteDeptId && (
+        <div className="modal show d-block" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content p-4 text-center">
+
+              <h5 className="fw-bold mb-3">Delete Department?</h5>
+              <p className="text-muted small">
+                This action cannot be undone.
+              </p>
+
+              <div className="d-flex justify-content-center gap-3 mt-3">
+                <button
+                  className="btn btn-light"
+                  onClick={() => setDeleteDeptId(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={confirmDelete}
+                >
+                  Delete
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
